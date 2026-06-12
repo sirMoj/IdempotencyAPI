@@ -1,6 +1,8 @@
 ﻿using API.BLL.Model;
 using API.Dal.Model;
 using API.Dal.Repository;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,38 +13,32 @@ namespace API.BLL.Service {
 
         private readonly IPaymentRepository _paymentRepository;
 
-        public PaymentService(IPaymentRepository paymentRepository) { 
+        public PaymentService(IPaymentRepository paymentRepository) {
             _paymentRepository = paymentRepository;
         }
 
-        public async Task<PaymentResponse> PaymentAPIService(string idempotencyKey,PaymentRequest request) {
-            PaymentResponseModel paymentResponseModel;//for repository
-            PaymentResponse paymentResponse = new PaymentResponse();// for APIservice response
-
-            var idempotenRecord = await _paymentRepository.GetIdempotentRecord(idempotencyKey);
-
+        public async Task<PaymentResponse> PaymentAPIService(string idempotencyKey, PaymentRequest request) {
             string requestHash = this._hashPaymentRequest(request);
-
-            if (idempotenRecord == null) {
+            try {
                 var paymentModel = this._initializeRequestModel(idempotencyKey, request);
-                paymentResponseModel = await _paymentRepository.CreatePaymentTransaction(idempotencyKey,requestHash, paymentModel);
+                var paymentResponseModel = await _paymentRepository.CreatePaymentTransaction(idempotencyKey, requestHash, paymentModel);
                 return new PaymentResponse() {
                     paymentReference = paymentResponseModel.paymentRef,
                     status = paymentResponseModel.status,
                 };
-            }           
-            if (!requestHash.Equals(idempotenRecord?.requestHash)) {
+            } catch (DbUpdateException) {
+                var idempotenRecord = await _paymentRepository.GetIdempotentRecord(idempotencyKey);
+                if (idempotenRecord.requestHash != requestHash) {
+                    return new PaymentResponse() {
+                        statuscode = 409,
+                        message = "Payload does not match original request."
+                    };
+                }
+                var paymentResponseModel = await _paymentRepository.GetPaymentResponse(idempotencyKey);
                 return new PaymentResponse() {
-                    statuscode = 409,
-                    message = "Payload does not match original request."
-                };
-            }else {
-                paymentResponseModel = await _paymentRepository.GetPaymentResponse(idempotencyKey);
-                return new PaymentResponse() { 
                     paymentReference = paymentResponseModel.paymentRef,
                     status = paymentResponseModel.status,
                 };
-
             }
         }
 
@@ -57,7 +53,7 @@ namespace API.BLL.Service {
 
         private string _hashPaymentRequest(PaymentRequest request) {
 
-            string normalized =$"{request.orderId}|{request.amount:F2}";
+            string normalized = $"{request.orderId}|{request.amount:F2}";
             byte[] inputBytes = Encoding.UTF8.GetBytes(normalized);
             byte[] hashByte = SHA256.HashData(inputBytes);
             return Convert.ToHexString(hashByte);

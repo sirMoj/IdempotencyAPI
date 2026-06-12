@@ -2,6 +2,7 @@
 using API.Dal.Model;
 using Azure.Core;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion.Internal;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,32 +18,34 @@ namespace API.Dal.Repository {
             _context = context;
         }
 
-        public async Task<PaymentResponseModel> CreatePaymentTransaction(string hashedRequest,PaymentModel payment) {
+        public async Task<PaymentResponseModel> CreatePaymentTransaction(string idempotencyKey,string hashedRequest,PaymentModel payment) {
             IdempotencyRecordsModel idempotencyRecordsModel = new IdempotencyRecordsModel() { 
-                idempotencyKey = payment.paymentRef!,
+                idempotencyKey = idempotencyKey,
                 requesHash = hashedRequest,
                 paymentResponseBody = new PaymentResponseModel() { 
-                    paymentRef = payment.paymentRef!,
+                    paymentRef = payment.paymentRef,
                     status = "success"
                 },
+                paymentModel = payment,
                 createdDate = DateTime.Now
             };
             try {
-                var paymentIsCreated =  await _context.Payment.AddAsync(payment);
+                using var transaction = _context.Database.BeginTransaction();
                 var IdempotentIsCreated = await _context.idempotencyRecords.AddAsync(idempotencyRecordsModel);
                 int result = await _context.SaveChangesAsync();
-                return result > 0 ? idempotencyRecordsModel.paymentResponseBody: new PaymentResponseModel();
+                transaction.Commit();
+                return result > 0 ? idempotencyRecordsModel.paymentResponseBody: null!;
             } catch (Exception ex) {
-                return new PaymentResponseModel();
+                throw;
             }
         }
 
-        public async Task<PaymentModel> GetPaymentRecord(string idempotencyKey) {
+        public async Task<PaymentModel?> GetPaymentRecord(string idempotencyKey) {
             try {
-                PaymentModel record = await _context.Payment.FirstOrDefaultAsync(predicate: payment => payment.paymentRef == idempotencyKey);
-                return record != null ? record : null!;
+                IdempotencyRecordsModel? idempotencyRecordsModel = await _context.idempotencyRecords.FirstOrDefaultAsync(d=>d.idempotencyKey==idempotencyKey);
+                return idempotencyRecordsModel?.paymentModel;
             } catch (Exception ex) {
-                return null!;
+                throw;
             }
         }
 
@@ -51,19 +54,18 @@ namespace API.Dal.Repository {
                 IdempotencyRecordsModel idempotentModel = await _context.idempotencyRecords.FirstOrDefaultAsync(i => i.idempotencyKey == key);
                 return idempotentModel!=null? idempotentModel.paymentResponseBody : null!;
             } catch (Exception e) {
-                return null!;
+                throw;
             }
         }
 
         public async Task<string> SavePaymentResponse(IdempotencyRecordsModel idempotentModel) {
             try {
-                _context.idempotencyRecords.AddAsync(idempotentModel);
+                await _context.idempotencyRecords.AddAsync(idempotentModel);
                 int result = await _context.SaveChangesAsync();
                 return result > 0 ? "Success" : "Failed";
             } catch (Exception ex) {
-
+                throw;
             }
-            return null;
         }
 
     }

@@ -16,35 +16,46 @@ namespace API.BLL.Service {
         }
 
         public async Task<PaymentResponse> PaymentAPIService(string idempotencyKey,PaymentRequest request) {
-            PaymentResponseModel responseModel;
-            PaymentResponse paymentResponse = new PaymentResponse();
+            PaymentResponseModel paymentResponseModel;//for repository
+            PaymentResponse paymentResponse = new PaymentResponse();// for APIservice response
+            PaymentRequest paymentRequest = new PaymentRequest();
+
             PaymentModel paymentModel = await _paymentRepository.GetPaymentRecord(idempotencyKey);
-            if (paymentModel.orderId != request.orderId || paymentModel.amount != request.amount) {
+
+            if (paymentModel != null) {
+                paymentRequest = new PaymentRequest() {
+                    orderId = paymentModel.orderId,
+                    amount = paymentModel.amount
+                };
+            }
+
+            string paymentModelHash = this._hashPaymentRequest(paymentRequest);
+            string requestHash = this._hashPaymentRequest(request);
+
+            if (paymentModel == null) {
+                paymentModel = this._initializeRequestModel(idempotencyKey, request);
+                paymentResponseModel = await _paymentRepository.CreatePaymentTransaction(idempotencyKey,requestHash, paymentModel);
+                paymentResponse = new PaymentResponse() {
+                    paymentReference = paymentResponseModel.paymentRef,
+                    status = paymentResponseModel.status,
+                };
+            }
+            else if (!requestHash.Equals(paymentModelHash)) {
                 paymentResponse.statuscode = 409;
                 paymentResponse.message = "Payload does not match original request.";
-                return paymentResponse;
-            }else if (paymentModel.orderId == request.orderId && paymentModel.amount == request.amount) { 
-                responseModel = await _paymentRepository.GetIdempotentRecord(idempotencyKey);
+            }else {
+                paymentResponseModel = await _paymentRepository.GetIdempotentRecord(idempotencyKey);
                 paymentResponse = new PaymentResponse() { 
-                    paymentReference = responseModel.paymentRef,
-                    status = responseModel.status,
+                    paymentReference = paymentResponseModel.paymentRef,
+                    status = paymentResponseModel.status,
                 };
-                return paymentResponse;
-            }else if (paymentModel == null) {
-                paymentModel = this._initializeRequestModel(idempotencyKey,request);
-                responseModel = await _paymentRepository.CreatePaymentTransaction(this._hashPaymentRequest(request),paymentModel);
-                paymentResponse = new PaymentResponse() {
-                    paymentReference = responseModel.paymentRef,
-                    status = responseModel.status,
-                };
-                return paymentResponse;
             }
-            return new PaymentResponse();
+            return paymentResponse;
         }
 
-        private PaymentModel _initializeRequestModel(string IdempotencyKey,PaymentRequest request) {
-            PaymentModel paymentModel = new PaymentModel() { 
-                paymentRef = IdempotencyKey,
+        private PaymentModel _initializeRequestModel(string IdempotencyKey, PaymentRequest request) {
+            PaymentModel paymentModel = new PaymentModel() {
+                paymentRef = "PAY-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss") + new Random().Next(99).ToString(),
                 orderId = request.orderId,
                 amount = request.amount,
             };
@@ -52,8 +63,9 @@ namespace API.BLL.Service {
         }
 
         private string _hashPaymentRequest(PaymentRequest request) {
-            string hash = JsonSerializer.Serialize(request);
-            byte[] inputBytes = Encoding.UTF8.GetBytes(hash);
+
+            string normalized =$"{request.orderId}|{request.amount:F2}";
+            byte[] inputBytes = Encoding.UTF8.GetBytes(normalized);
             byte[] hashByte = SHA256.HashData(inputBytes);
             return Convert.ToHexString(hashByte);
         }

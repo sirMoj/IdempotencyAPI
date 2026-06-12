@@ -18,39 +18,32 @@ namespace API.BLL.Service {
         public async Task<PaymentResponse> PaymentAPIService(string idempotencyKey,PaymentRequest request) {
             PaymentResponseModel paymentResponseModel;//for repository
             PaymentResponse paymentResponse = new PaymentResponse();// for APIservice response
-            PaymentRequest paymentRequest = new PaymentRequest();
 
-            PaymentModel paymentModel = await _paymentRepository.GetPaymentRecord(idempotencyKey);
+            var idempotenRecord = await _paymentRepository.GetIdempotentRecord(idempotencyKey);
 
-            if (paymentModel != null) {
-                paymentRequest = new PaymentRequest() {
-                    orderId = paymentModel.orderId,
-                    amount = paymentModel.amount
-                };
-            }
-
-            string paymentModelHash = this._hashPaymentRequest(paymentRequest);
             string requestHash = this._hashPaymentRequest(request);
 
-            if (paymentModel == null) {
-                paymentModel = this._initializeRequestModel(idempotencyKey, request);
+            if (idempotenRecord == null) {
+                var paymentModel = this._initializeRequestModel(idempotencyKey, request);
                 paymentResponseModel = await _paymentRepository.CreatePaymentTransaction(idempotencyKey,requestHash, paymentModel);
-                paymentResponse = new PaymentResponse() {
+                return new PaymentResponse() {
                     paymentReference = paymentResponseModel.paymentRef,
                     status = paymentResponseModel.status,
                 };
-            }
-            else if (!requestHash.Equals(paymentModelHash)) {
-                paymentResponse.statuscode = 409;
-                paymentResponse.message = "Payload does not match original request.";
+            }           
+            if (!requestHash.Equals(idempotenRecord?.requestHash)) {
+                return new PaymentResponse() {
+                    statuscode = 409,
+                    message = "Payload does not match original request."
+                };
             }else {
-                paymentResponseModel = await _paymentRepository.GetIdempotentRecord(idempotencyKey);
-                paymentResponse = new PaymentResponse() { 
+                paymentResponseModel = await _paymentRepository.GetPaymentResponse(idempotencyKey);
+                return new PaymentResponse() { 
                     paymentReference = paymentResponseModel.paymentRef,
                     status = paymentResponseModel.status,
                 };
+
             }
-            return paymentResponse;
         }
 
         private PaymentModel _initializeRequestModel(string IdempotencyKey, PaymentRequest request) {

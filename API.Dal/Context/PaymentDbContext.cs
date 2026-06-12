@@ -26,7 +26,6 @@ namespace API.Dal.Context {
                 entity.ToTable("idempotencyRecords");
                 entity.HasKey(e=>e.Id);
                 entity.Property(e => e.Id).ValueGeneratedOnAdd();
-                entity.Navigation(e => e.paymentModel).AutoInclude();
                 entity.Navigation(e => e.paymentResponseBody).AutoInclude();
                 entity.HasIndex(e=>e.idempotencyKey).IsUnique();
             });

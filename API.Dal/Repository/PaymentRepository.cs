@@ -41,8 +41,10 @@ namespace API.Dal.Repository {
             var idempotentModel = await _context.idempotencyRecords.FirstOrDefaultAsync(i => i.idempotencyKey == key);
             return idempotentModel != null ? idempotentModel : null!;
         }
-        public async Task<PaymentResponseModel> GetPaymentResponse(string key) {
-            var record = await _context.idempotencyRecords.AsNoTracking().FirstOrDefaultAsync(i => i.idempotencyKey == key);
+        public async Task<PaymentResponseModel?> GetPaymentResponse(string key) {
+            var record = await _context.idempotencyRecords
+                .Include(i => i.paymentResponseBody)
+                .FirstOrDefaultAsync(i => i.idempotencyKey == key);
             if (record == null || record.paymentResponseBody == null) {
                 return null;
             } else {
@@ -51,10 +53,9 @@ namespace API.Dal.Repository {
         }
 
         public async Task<string> SavePaymentResponse(IdempotencyRecordsModel idempotentModel) {
-                await _context.idempotencyRecords.AddAsync(idempotentModel);
-                int result = await _context.SaveChangesAsync();
-                return result > 0 ? "Success" : "Failed";
-
+            await _context.idempotencyRecords.AddAsync(idempotentModel);
+            int result = await _context.SaveChangesAsync();
+            return result > 0 ? "Success" : "Failed";
         }
 
     }

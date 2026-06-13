@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace API.BLL.Model {
     public class PaymentRequest {
-        public string orderId { get; set; }
+        public string orderId { get; set; } = null!;
         public decimal amount { get; set; }
     }
 }

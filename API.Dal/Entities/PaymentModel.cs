@@ -6,7 +6,7 @@ namespace API.Dal.Model {
         [Key]
         public string? Id { get; set; }
         public string orderId { get; set; } = null!;
-        public decimal amount { get; set; }
+        public decimal? amount { get; set; }
         public string paymentRef { get; set; } = null!;
     }
 }

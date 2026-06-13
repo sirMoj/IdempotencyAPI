@@ -1,12 +1,10 @@
 ﻿using API.BLL.Model;
 using API.Dal.Model;
 using API.Dal.Repository;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Migrations.Operations;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 
 namespace API.BLL.Service {
     public class PaymentService : IPaymentService {
@@ -26,7 +24,7 @@ namespace API.BLL.Service {
                     paymentReference = paymentResponseModel.paymentRef,
                     status = paymentResponseModel.status,
                 };
-            } catch (DbUpdateException) {
+            } catch (DbUpdateException ex) when (_IsUniqueConstraintViolation(ex)) {
                 var idempotenRecord = await _paymentRepository.GetIdempotentRecord(idempotencyKey);
                 if (idempotenRecord.requestHash != requestHash) {
                     return new PaymentResponse() {
@@ -36,10 +34,16 @@ namespace API.BLL.Service {
                 }
                 var paymentResponseModel = await _paymentRepository.GetPaymentResponse(idempotencyKey);
                 return new PaymentResponse() {
-                    paymentReference = paymentResponseModel.paymentRef,
-                    status = paymentResponseModel.status,
+                    paymentReference = paymentResponseModel?.paymentRef,
+                    status = paymentResponseModel?.status,
+                };
+            } catch (Exception ex){
+                return new PaymentResponse() {
+                    statuscode = 503, 
+                    message = "Payment system is temporarily unavailable. Please retry shortly."
                 };
             }
+
         }
 
         private PaymentModel _initializeRequestModel(string IdempotencyKey, PaymentRequest request) {
@@ -59,5 +63,11 @@ namespace API.BLL.Service {
             return Convert.ToHexString(hashByte);
         }
 
+        private bool _IsUniqueConstraintViolation(DbUpdateException ex) {
+            return ex.InnerException switch {
+                SqlException sqlEx => sqlEx.Number is 2601 or 2627,
+                _ => false
+            };
+        }
     }
 }
